@@ -61,6 +61,7 @@ use PrestaShop\PrestaShop\Core\Security\Permission;
 use PrestaShop\PrestaShop\Core\Team\Employee\Configuration\OptionsCheckerInterface;
 use PrestaShop\PrestaShop\Core\Util\HelperCard\DocumentationLinkProviderInterface;
 use PrestaShopBundle\Controller\Admin\PrestaShopAdminController;
+use PrestaShopBundle\Entity\Repository\EmployeeRepository;
 use PrestaShopBundle\Security\Attribute\AdminSecurity;
 use PrestaShopBundle\Security\Attribute\DemoRestricted;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -357,6 +358,27 @@ class EmployeeController extends PrestaShopAdminController
             '@PrestaShop/Admin/Configure/AdvancedParameters/Employee/edit.html.twig',
             $templateVars
         );
+    }
+
+    #[DemoRestricted(redirectRoute: 'admin_employees_index')]
+    #[AdminSecurity("is_granted('ROLE_ALLOWED_TO_SWITCH')", redirectRoute: 'admin_employees_index')]
+    public function impersonateAction(
+        int $employeeId,
+        EmployeeRepository $employeeRepository,
+    ): RedirectResponse {
+        $employee = $employeeRepository->find($employeeId);
+        if (!$employee) {
+            $this->addFlash(
+                'error',
+                $this->trans('Employee not found.', [], 'Admin.Notifications.Error')
+            );
+
+            return $this->redirectToRoute('admin_employees_index');
+        }
+
+        return $this->redirectToRoute('admin_homepage', [
+            '_switch_user' => $employee->getEmail(),
+        ]);
     }
 
     public function toggleNavigationMenuAction(

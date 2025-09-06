@@ -457,5 +457,6 @@
     <access id="access_1_509" id_profile="SuperAdmin" id_authorization_role="TAB_ADMINALIASES_CREATE"/>
     <access id="access_1_510" id_profile="SuperAdmin" id_authorization_role="TAB_ADMINALIASES_UPDATE"/>
     <access id="access_1_511" id_profile="SuperAdmin" id_authorization_role="TAB_ADMINALIASES_DELETE"/>
+    <access id="access_1_512" id_profile="SuperAdmin" id_authorization_role="ROLE_ALLOWED_TO_SWITCH"/>
   </entities>
 </entity_access>

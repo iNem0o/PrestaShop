@@ -51,6 +51,7 @@ use Symfony\Component\Security\Core\User\UserInterface;
 class Employee implements UserInterface, PasswordAuthenticatedUserInterface, EquatableInterface, SessionEmployeeInterface
 {
     public const ROLE_EMPLOYEE = 'ROLE_EMPLOYEE';
+    public const ROLE_ALLOWED_TO_SWITCH = 'ROLE_ALLOWED_TO_SWITCH';
 
     /**
      * @ORM\Id

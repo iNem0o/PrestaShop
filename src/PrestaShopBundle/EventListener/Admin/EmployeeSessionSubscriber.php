@@ -27,6 +27,7 @@
 namespace PrestaShopBundle\EventListener\Admin;
 
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\NonUniqueResultException;
 use PrestaShop\PrestaShop\Adapter\LegacyContext;
 use PrestaShop\PrestaShop\Core\ConfigurationInterface;
 use PrestaShop\PrestaShop\Core\Context\EmployeeContextBuilder;
@@ -37,6 +38,7 @@ use PrestaShopBundle\Security\Admin\EmployeeProvider;
 use PrestaShopBundle\Security\Admin\TokenAttributes;
 use PrestaShopBundle\Service\Routing\Router;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -46,11 +48,15 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\Routing\RouterInterface;
+use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Symfony\Component\Security\Http\Event\AuthenticationTokenCreatedEvent;
 use Symfony\Component\Security\Http\Event\LoginSuccessEvent;
 use Symfony\Component\Security\Http\Event\LogoutEvent;
+use Symfony\Component\Security\Http\Event\SwitchUserEvent;
 use Symfony\Component\Security\Http\Event\TokenDeauthenticatedEvent;
+use Symfony\Component\Security\Http\Firewall\SwitchUserListener;
+use Symfony\Component\Security\Http\SecurityEvents;
 use Symfony\Component\Security\Http\Util\TargetPathTrait;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -88,6 +94,7 @@ class EmployeeSessionSubscriber implements EventSubscriberInterface
             KernelEvents::RESPONSE => 'onKernelResponse',
             LogoutEvent::class => 'onLogout',
             TokenDeauthenticatedEvent::class => 'cleanEmployeeSessions',
+            SecurityEvents::SWITCH_USER => 'onSwitchUser',
         ];
     }
 
@@ -95,13 +102,10 @@ class EmployeeSessionSubscriber implements EventSubscriberInterface
     {
         // Load doctrine employee because the event may contain an unserialized object not recognized by the Entity manager
         $employee = $this->employeeRepository->loadEmployeeByIdentifier($event->getAuthenticatedToken()->getUserIdentifier());
-
-        // Create new employee session
-        $employeeSession = new EmployeeSession();
-        $employeeSession->setToken(sha1(time() . uniqid()));
-        $employee->addSession($employeeSession);
-        $this->entityManager->persist($employeeSession);
-        $this->entityManager->flush();
+        if (!$employee instanceof Employee) {
+            throw new RuntimeException('Employee not found');
+        }
+        $employeeSession = $this->saveNewSessionForEmployee($employee);
 
         // Update EmployeeContextBuilder so the EmployeeContext is ready to be built in early request events,
         // like in ShopContextSubscriber::initShopContextOnLogin for example
@@ -130,6 +134,41 @@ class EmployeeSessionSubscriber implements EventSubscriberInterface
         }
 
         // Update the cookie after successful login
+        $this->updateLegacyCookie($event->getRequest(), true);
+    }
+
+    /**
+     * Handles the event triggered during user impersonation.
+     */
+    public function onSwitchUser(SwitchUserEvent $event): void
+    {
+        // do not create a new session when exiting impersonation
+        if (SwitchUserListener::EXIT_VALUE === $event->getRequest()->get('_switch_user')) {
+            return;
+        }
+
+        // extract target employee
+        $targetUser = $event->getTargetUser();
+        try {
+            $targetEmployee = $this->employeeRepository->loadEmployeeByIdentifier($targetUser->getUserIdentifier());
+            if (!$targetEmployee instanceof Employee) {
+                throw new AccessDeniedException('Target employee not found for impersonation');
+            }
+        } catch (NonUniqueResultException $e) {
+            throw new AccessDeniedException('Multiple employees found with same identifier');
+        }
+
+        // create new employee session for target employee
+        $employeeSession = $this->saveNewSessionForEmployee($targetEmployee);
+
+        // switch current context to target employee session
+        $this->employeeContextBuilder->setEmployeeId($targetEmployee->getId());
+
+        // inject employee session into current Token
+        $event->getToken()->setAttribute(TokenAttributes::EMPLOYEE_SESSION, $employeeSession);
+        if ((bool) $this->configuration->get('PS_COOKIE_CHECKIP')) {
+            $event->getToken()->setAttribute(TokenAttributes::IP_ADDRESS, $event->getRequest()->getClientIp());
+        }
         $this->updateLegacyCookie($event->getRequest(), true);
     }
 
@@ -275,5 +314,23 @@ class EmployeeSessionSubscriber implements EventSubscriberInterface
         if ($write) {
             $legacyCookie->write();
         }
+    }
+
+    /**
+     * @param Employee|null $employee
+     * @param AuthenticationTokenCreatedEvent $event
+     *
+     * @return void
+     */
+    public function saveNewSessionForEmployee(Employee $employee): EmployeeSession
+    {
+        // Create new employee session
+        $employeeSession = new EmployeeSession();
+        $employeeSession->setToken(sha1(time() . uniqid('', true)));
+        $employee->addSession($employeeSession);
+        $this->entityManager->persist($employeeSession);
+        $this->entityManager->flush();
+
+        return $employeeSession;
     }
 }

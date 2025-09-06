@@ -29,6 +29,7 @@ namespace PrestaShop\PrestaShop\Core\Grid\Definition\Factory;
 use PrestaShop\PrestaShop\Core\Grid\Action\Bulk\BulkActionCollection;
 use PrestaShop\PrestaShop\Core\Grid\Action\Bulk\Type\SubmitBulkAction;
 use PrestaShop\PrestaShop\Core\Grid\Action\GridActionCollection;
+use PrestaShop\PrestaShop\Core\Grid\Action\Row\AccessibilityChecker\UserImpersonationAccessibilityChecker;
 use PrestaShop\PrestaShop\Core\Grid\Action\Row\RowActionCollection;
 use PrestaShop\PrestaShop\Core\Grid\Action\Row\Type\LinkRowAction;
 use PrestaShop\PrestaShop\Core\Grid\Action\Type\SimpleGridAction;
@@ -39,6 +40,7 @@ use PrestaShop\PrestaShop\Core\Grid\Column\Type\Common\DataColumn;
 use PrestaShop\PrestaShop\Core\Grid\Column\Type\Common\ToggleColumn;
 use PrestaShop\PrestaShop\Core\Grid\Filter\Filter;
 use PrestaShop\PrestaShop\Core\Grid\Filter\FilterCollection;
+use PrestaShop\PrestaShop\Core\Hook\HookDispatcherInterface;
 use PrestaShopBundle\Form\Admin\Type\Common\Team\ProfileChoiceType;
 use PrestaShopBundle\Form\Admin\Type\SearchAndResetType;
 use PrestaShopBundle\Form\Admin\Type\YesAndNoChoiceType;
@@ -69,6 +71,13 @@ final class EmployeeGridDefinitionFactory extends AbstractGridDefinitionFactory
     protected function getName()
     {
         return $this->trans('Employees', [], 'Admin.Advparameters.Feature');
+    }
+
+    public function __construct(
+        HookDispatcherInterface $hookDispatcher,
+        protected UserImpersonationAccessibilityChecker $userImpersonationAccessibilityChecker
+    ) {
+        parent::__construct($hookDispatcher);
     }
 
     /**
@@ -142,6 +151,17 @@ final class EmployeeGridDefinitionFactory extends AbstractGridDefinitionFactory
                                     'route_param_field' => 'id_employee',
                                     'clickable_row' => true,
                                 ])
+                            )
+                            ->add(
+                                (new LinkRowAction('impersonate'))
+                                    ->setName($this->trans('Impersonate', [], 'Admin.Actions'))
+                                    ->setIcon('person')
+                                    ->setOptions([
+                                        'route' => 'admin_employees_impersonate',
+                                        'route_param_name' => 'employeeId',
+                                        'route_param_field' => 'id_employee',
+                                        'accessibility_checker' => $this->userImpersonationAccessibilityChecker,
+                                    ])
                             )
                             ->add(
                                 $this->buildDeleteAction(

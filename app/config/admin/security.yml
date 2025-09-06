@@ -41,6 +41,11 @@ security:
       logout:
         path: /logout
         target: admin_login
+      switch_user:
+        role: ROLE_ALLOWED_TO_SWITCH
+        parameter: _switch_user
+        # force redirect to homepage after user switch to prevent previous employee token usage in the current url
+        target_route: admin_homepage
 
   access_control:
     - { route: 'admin_login', roles: PUBLIC_ACCESS }
