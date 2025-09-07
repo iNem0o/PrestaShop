@@ -25,12 +25,15 @@
  */
 
 use PrestaShop\PrestaShop\Adapter\ContainerBuilder;
+use PrestaShop\PrestaShop\Adapter\Hook\HookActionRegistry;
 use PrestaShop\PrestaShop\Adapter\LegacyLogger;
 use PrestaShop\PrestaShop\Adapter\ServiceLocator;
 use PrestaShop\PrestaShop\Adapter\SymfonyContainer;
+use PrestaShop\PrestaShop\Core\Domain\Hook\Exception\HookNotFoundException;
 use PrestaShop\PrestaShop\Core\Exception\CoreException;
 use PrestaShop\PrestaShop\Core\Hook\HookModuleFilter;
 use PrestaShop\PrestaShop\Core\Module\Exception\ModuleErrorInterface;
+use PrestaShop\PrestaShop\Core\Module\Legacy\ModuleInterface;
 use PrestaShop\PrestaShop\Core\Module\WidgetInterface;
 use PrestaShopBundle\Form\Admin\Type\FormattedTextareaType;
 use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
@@ -405,14 +408,14 @@ class HookCore extends ObjectModel
     /**
      * Check if a hook is callable on a module.
      *
-     * @param Module $module Module instance
+     * @param ModuleInterface $module Module instance
      * @param string $hookName Hook name
      * @param bool $strict [default=false] Set to TRUE to avoid checking if aliases are callable as well
      *
      * @return bool
      */
     public static function isHookCallableOn(
-        Module $module,
+        ModuleInterface $module,
         string $hookName,
         $strict = false
     ): bool {
@@ -426,7 +429,7 @@ class HookCore extends ObjectModel
             }
         }
 
-        return false;
+        return self::getActionHookRegistry()?->isActionHookCallableOn($module, $hooksToCheck) ?? false;
     }
 
     /**
@@ -454,7 +457,12 @@ class HookCore extends ObjectModel
                 return static::coreCallHook($module, $methodName, $hookArgs);
             }
 
-            // fall back to all other names
+            // try action hook
+            if (self::hasActionHook($module, $hookName)) {
+                return self::callActionHook($module, $hookName, $hookArgs);
+            }
+
+            // fall back to all other names for legacy method calls
             foreach (static::getAllKnownNames($hookName) as $hook) {
                 $methodName = self::getMethodName($hook);
                 if (is_callable([$module, $methodName])) {
@@ -463,6 +471,11 @@ class HookCore extends ObjectModel
                         $methodName,
                         $hookArgs
                     );
+                }
+
+                // try action hook with fallback legacy names
+                if (self::hasActionHook($module, $hook)) {
+                    return self::callActionHook($module, $hook, $hookArgs);
                 }
             }
         } catch (ModuleErrorInterface $e) {
@@ -478,6 +491,45 @@ class HookCore extends ObjectModel
         }
 
         return '';
+    }
+
+    /**
+     * Calls an action hook on a module.
+     *
+     * @param array<string, mixed> $hookArgs
+     *
+     * @throws HookNotFoundException
+     */
+    private static function callActionHook(ModuleInterface $module, string $hookName, array $hookArgs): string
+    {
+        $actionHookRegistry = self::getActionHookRegistry();
+        if (!$actionHookRegistry instanceof HookActionRegistry) {
+            // fallback to empty string if action registry is null here (probably because of disabled toggle feature PS_FF_FRONT_CONTAINER_V2)
+            return '';
+        }
+
+        return $actionHookRegistry->callActionHook($module, $hookName, $hookArgs);
+    }
+
+    /**
+     * Checks if a module has an action hook for a given hook name.
+     */
+    public static function hasActionHook(ModuleInterface $module, string $hookName): bool
+    {
+        return self::getActionHookRegistry()?->hasActionHook($module, $hookName) ?? false;
+    }
+
+    private static function getActionHookRegistry(): ?HookActionRegistry
+    {
+        if (null === SymfonyContainer::getInstance()) {
+            return null;
+        }
+        $registry = SymfonyContainer::getInstance()->get(HookActionRegistry::class);
+        if (!$registry instanceof HookActionRegistry) {
+            return null;
+        }
+
+        return $registry;
     }
 
     /**

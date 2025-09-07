@@ -48,6 +48,11 @@ services:
       package: PrestaShop\PrestaShop
       version: 9.0
 
+  PrestaShop\PrestaShop\Adapter\Hook\HookActionRegistry:
+    public: true
+    autowire: true
+    autoconfigure: true
+
 parameters:
   hook_descriptions:
     'grid_definition_modifier':
